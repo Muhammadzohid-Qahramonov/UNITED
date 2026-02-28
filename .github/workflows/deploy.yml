@@ -27,6 +27,7 @@ jobs:
           EC2_SSH_PRIVATE_KEY_B64: ${{ secrets.EC2_SSH_PRIVATE_KEY_B64 }}
         run: |
           set -euo pipefail
+
           [ -n "$EC2_HOST" ] || (echo "EC2_HOST is missing" && exit 1)
           [ -n "$EC2_USER" ] || (echo "EC2_USER is missing" && exit 1)
           [ -n "$EC2_DEPLOY_PATH" ] || (echo "EC2_DEPLOY_PATH is missing" && exit 1)
@@ -43,14 +44,16 @@ jobs:
         run: |
           set -euo pipefail
 
+          mkdir -p ~/.ssh
+
           if [ -n "$EC2_SSH_PRIVATE_KEY_B64" ]; then
-            echo "$EC2_SSH_PRIVATE_KEY_B64" | base64 -d > .ec2_key
+            echo "$EC2_SSH_PRIVATE_KEY_B64" | base64 -d > ~/.ssh/ec2_key
           else
-            printf '%s\n' "$EC2_SSH_PRIVATE_KEY" > .ec2_key
+            printf '%s\n' "$EC2_SSH_PRIVATE_KEY" > ~/.ssh/ec2_key
           fi
 
-          chmod 600 .ec2_key
-          ssh-keygen -y -f .ec2_key > /dev/null
+          chmod 600 ~/.ssh/ec2_key
+          ssh-keygen -y -f ~/.ssh/ec2_key > /dev/null
 
       - name: Setup Dart
         uses: dart-lang/setup-dart@v1
@@ -61,43 +64,47 @@ jobs:
       - name: Static analysis
         run: dart analyze
 
-      - name: Upload project to EC2 server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key_path: .ec2_key
-          port: ${{ secrets.EC2_PORT || 22 }}
-          source: "./*"
-          target: ${{ secrets.EC2_DEPLOY_PATH }}
-          rm: false
-          overwrite: true
-          strip_components: 0
-          timeout: 120s
+      - name: Sync project to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_PORT: ${{ secrets.EC2_PORT }}
+          EC2_DEPLOY_PATH: ${{ secrets.EC2_DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
 
-      - name: Restart backend on EC2 server
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key_path: .ec2_key
-          port: ${{ secrets.EC2_PORT || 22 }}
-          script_stop: true
-          timeout: 120s
-          script: |
-            set -euo pipefail
+          PORT="${EC2_PORT:-22}"
 
-            DEPLOY_PATH="${{ secrets.EC2_DEPLOY_PATH }}"
-            cd "$DEPLOY_PATH"
+          SSH_CMD="ssh -i ~/.ssh/ec2_key -p $PORT -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
-            if [ -n "${{ secrets.SERVERPOD_PASSWORDS_YAML_B64 }}" ]; then
-              mkdir -p config
-              echo "${{ secrets.SERVERPOD_PASSWORDS_YAML_B64 }}" | base64 -d > config/passwords.yaml
-            fi
+          $SSH_CMD "$EC2_USER@$EC2_HOST" "mkdir -p '$EC2_DEPLOY_PATH'"
 
-            docker compose up -d --build
-            docker image prune -f
+          rsync -az --delete \
+            --exclude '.git/' \
+            --exclude '.github/' \
+            --exclude '.dart_tool/' \
+            --exclude 'test/' \
+            -e "$SSH_CMD" \
+            ./ "$EC2_USER@$EC2_HOST:$EC2_DEPLOY_PATH/"
+
+      - name: Restart backend on EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_PORT: ${{ secrets.EC2_PORT }}
+          EC2_DEPLOY_PATH: ${{ secrets.EC2_DEPLOY_PATH }}
+          SERVERPOD_PASSWORDS_YAML_B64: ${{ secrets.SERVERPOD_PASSWORDS_YAML_B64 }}
+        run: |
+          set -euo pipefail
+
+          PORT="${EC2_PORT:-22}"
+
+          ssh -i ~/.ssh/ec2_key \
+            -p "$PORT" \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            "$EC2_USER@$EC2_HOST" "set -euo pipefail; cd \"$EC2_DEPLOY_PATH\"; if [ -n \"$SERVERPOD_PASSWORDS_YAML_B64\" ]; then mkdir -p config; echo \"$SERVERPOD_PASSWORDS_YAML_B64\" | base64 -d > config/passwords.yaml; fi; docker compose up -d --build; docker image prune -f"
 
       - name: Cleanup temporary key
         if: always()
-        run: rm -f .ec2_key
+        run: rm -f ~/.ssh/ec2_key
