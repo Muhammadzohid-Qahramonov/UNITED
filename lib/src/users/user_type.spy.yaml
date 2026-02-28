@@ -1,0 +1,6 @@
+enum: UserType
+serialized: byName
+values:
+  - admin
+  - manager
+  - worker

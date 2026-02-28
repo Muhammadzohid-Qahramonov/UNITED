@@ -1,0 +1,10 @@
+class: User
+table: users
+fields:
+  firstName: String
+  lastName: String
+  phone: String
+  avatar: String?
+  type: UserType
+  workingBranch: String?
+  notifications: bool
