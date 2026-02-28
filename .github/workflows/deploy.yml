@@ -70,14 +70,23 @@ jobs:
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_PORT: ${{ secrets.EC2_PORT }}
           EC2_DEPLOY_PATH: ${{ secrets.EC2_DEPLOY_PATH }}
+          EC2_USE_SUDO: ${{ secrets.EC2_USE_SUDO }}
         run: |
           set -euo pipefail
 
           PORT="${EC2_PORT:-22}"
-
           SSH_CMD="ssh -i ~/.ssh/ec2_key -p $PORT -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
-          $SSH_CMD "$EC2_USER@$EC2_HOST" "mkdir -p '$EC2_DEPLOY_PATH'"
+          REMOTE_SUDO=""
+          if [ "${EC2_USE_SUDO:-false}" = "true" ]; then
+            REMOTE_SUDO="sudo"
+          fi
+
+          if ! $SSH_CMD "$EC2_USER@$EC2_HOST" "set -e; $REMOTE_SUDO mkdir -p '$EC2_DEPLOY_PATH'; $REMOTE_SUDO chown -R '$EC2_USER':'$EC2_USER' '$EC2_DEPLOY_PATH'"; then
+            echo "Cannot create/write EC2_DEPLOY_PATH=$EC2_DEPLOY_PATH for user $EC2_USER"
+            echo "Use a writable path like /home/$EC2_USER/united_server or set EC2_USE_SUDO=true"
+            exit 1
+          fi
 
           rsync -az --delete \
             --exclude '.git/' \
@@ -94,16 +103,21 @@ jobs:
           EC2_PORT: ${{ secrets.EC2_PORT }}
           EC2_DEPLOY_PATH: ${{ secrets.EC2_DEPLOY_PATH }}
           SERVERPOD_PASSWORDS_YAML_B64: ${{ secrets.SERVERPOD_PASSWORDS_YAML_B64 }}
+          EC2_USE_SUDO: ${{ secrets.EC2_USE_SUDO }}
         run: |
           set -euo pipefail
 
           PORT="${EC2_PORT:-22}"
+          REMOTE_SUDO=""
+          if [ "${EC2_USE_SUDO:-false}" = "true" ]; then
+            REMOTE_SUDO="sudo "
+          fi
 
           ssh -i ~/.ssh/ec2_key \
             -p "$PORT" \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
-            "$EC2_USER@$EC2_HOST" "set -euo pipefail; cd \"$EC2_DEPLOY_PATH\"; if [ -n \"$SERVERPOD_PASSWORDS_YAML_B64\" ]; then mkdir -p config; echo \"$SERVERPOD_PASSWORDS_YAML_B64\" | base64 -d > config/passwords.yaml; fi; docker compose up -d --build; docker image prune -f"
+            "$EC2_USER@$EC2_HOST" "set -euo pipefail; cd \"$EC2_DEPLOY_PATH\"; if [ -n \"$SERVERPOD_PASSWORDS_YAML_B64\" ]; then mkdir -p config; echo \"$SERVERPOD_PASSWORDS_YAML_B64\" | base64 -d > config/passwords.yaml; fi; ${REMOTE_SUDO}docker compose up -d --build; ${REMOTE_SUDO}docker image prune -f"
 
       - name: Cleanup temporary key
         if: always()
