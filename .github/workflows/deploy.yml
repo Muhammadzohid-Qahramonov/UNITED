@@ -1,0 +1,70 @@
+name: Deploy Serverpod Backend
+
+on:
+  push:
+    branches:
+      - deploy
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        run: |
+          [ -n "${{ secrets.AWS_HOST }}" ] || (echo "AWS_HOST is missing" && exit 1)
+          [ -n "${{ secrets.AWS_USER }}" ] || (echo "AWS_USER is missing" && exit 1)
+          [ -n "${{ secrets.AWS_SSH_PRIVATE_KEY }}" ] || (echo "AWS_SSH_PRIVATE_KEY is missing" && exit 1)
+          [ -n "${{ secrets.AWS_DEPLOY_PATH }}" ] || (echo "AWS_DEPLOY_PATH is missing" && exit 1)
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Static analysis
+        run: dart analyze
+
+      - name: Upload project to AWS server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.AWS_HOST }}
+          username: ${{ secrets.AWS_USER }}
+          key: ${{ secrets.AWS_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.AWS_PORT || 22 }}
+          source: "./*"
+          target: ${{ secrets.AWS_DEPLOY_PATH }}
+          rm: false
+          overwrite: true
+          strip_components: 0
+
+      - name: Restart backend on AWS server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.AWS_HOST }}
+          username: ${{ secrets.AWS_USER }}
+          key: ${{ secrets.AWS_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.AWS_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+
+            DEPLOY_PATH="${{ secrets.AWS_DEPLOY_PATH }}"
+            cd "$DEPLOY_PATH"
+
+            if [ -n "${{ secrets.SERVERPOD_PASSWORDS_YAML_B64 }}" ]; then
+              mkdir -p config
+              echo "${{ secrets.SERVERPOD_PASSWORDS_YAML_B64 }}" | base64 -d > config/passwords.yaml
+            fi
+
+            docker compose up -d --build
+            docker image prune -f
