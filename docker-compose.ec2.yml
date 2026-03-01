@@ -1,0 +1,39 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      runmode: development
+      serverid: default
+      logging: normal
+      role: monolith
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "8090:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: united
+      POSTGRES_PASSWORD: "4pgsWQKLqgOUGOOalk1KmQsqOvgwngj6"
+    volumes:
+      - united_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:6.2.6
+    ports:
+      - "8091:6379"
+    command: redis-server --requirepass "b-MSzANUZeggZXIZOEn6ZWO1OzmA79mb"
+    environment:
+      - REDIS_REPLICATION_MODE=master
+    restart: unless-stopped
+
+volumes:
+  united_data:
