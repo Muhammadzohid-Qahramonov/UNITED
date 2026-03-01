@@ -53,6 +53,25 @@ jobs:
           chmod 600 ~/.ssh/ec2_key
           ssh-keygen -y -f ~/.ssh/ec2_key >/dev/null
 
+      - name: Prepare optional passwords file
+        env:
+          SERVERPOD_PASSWORDS_YAML_B64: ${{ secrets.SERVERPOD_PASSWORDS_YAML_B64 }}
+          SERVERPOD_PASSWORDS_YAML: ${{ secrets.SERVERPOD_PASSWORDS_YAML }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${SERVERPOD_PASSWORDS_YAML_B64:-}" ]; then
+            mkdir -p config
+            if ! printf '%s' "$SERVERPOD_PASSWORDS_YAML_B64" | base64 -d > config/passwords.yaml 2>/dev/null; then
+              echo "SERVERPOD_PASSWORDS_YAML_B64 is not valid base64"
+              echo "Recreate with: base64 -i config/passwords.yaml | tr -d '\\n'"
+              exit 1
+            fi
+          elif [ -n "${SERVERPOD_PASSWORDS_YAML:-}" ]; then
+            mkdir -p config
+            printf '%s' "$SERVERPOD_PASSWORDS_YAML" > config/passwords.yaml
+          fi
+
       - name: Setup Dart
         uses: dart-lang/setup-dart@v1
 
@@ -96,7 +115,6 @@ jobs:
           EC2_PORT: ${{ secrets.EC2_PORT }}
           EC2_DEPLOY_PATH: ${{ secrets.EC2_DEPLOY_PATH }}
           EC2_USE_SUDO: ${{ secrets.EC2_USE_SUDO }}
-          SERVERPOD_PASSWORDS_YAML_B64: ${{ secrets.SERVERPOD_PASSWORDS_YAML_B64 }}
         run: |
           set -euo pipefail
 
@@ -107,7 +125,7 @@ jobs:
             REMOTE_SUDO="sudo"
           fi
 
-          ssh $SSH_OPTS "$EC2_USER@$EC2_HOST" "set -euo pipefail; if ! command -v docker >/dev/null 2>&1; then echo 'docker command not found on EC2'; exit 1; fi; COMPOSE_CMD='docker compose'; if ! docker compose version >/dev/null 2>&1; then if command -v docker-compose >/dev/null 2>&1; then COMPOSE_CMD='docker-compose'; else echo 'Docker Compose is not installed'; exit 1; fi; fi; cd '$EC2_DEPLOY_PATH'; if [ -n '$SERVERPOD_PASSWORDS_YAML_B64' ]; then mkdir -p config; echo '$SERVERPOD_PASSWORDS_YAML_B64' | base64 -d > config/passwords.yaml; fi; if [ '$REMOTE_SUDO' = 'sudo' ]; then sudo bash -lc \"\$COMPOSE_CMD up -d --build\"; sudo docker image prune -f; else bash -lc \"\$COMPOSE_CMD up -d --build\"; docker image prune -f; fi"
+          ssh $SSH_OPTS "$EC2_USER@$EC2_HOST" "set -euo pipefail; if ! command -v docker >/dev/null 2>&1; then echo 'docker command not found on EC2'; exit 1; fi; COMPOSE_CMD='docker compose'; if ! docker compose version >/dev/null 2>&1; then if command -v docker-compose >/dev/null 2>&1; then COMPOSE_CMD='docker-compose'; else echo 'Docker Compose is not installed'; exit 1; fi; fi; cd '$EC2_DEPLOY_PATH'; if [ '$REMOTE_SUDO' = 'sudo' ]; then sudo bash -lc \"\$COMPOSE_CMD up -d --build\"; sudo docker image prune -f; else bash -lc \"\$COMPOSE_CMD up -d --build\"; docker image prune -f; fi"
 
       - name: Cleanup temporary key
         if: always()
