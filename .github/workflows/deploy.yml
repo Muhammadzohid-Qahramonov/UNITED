@@ -92,7 +92,7 @@ jobs:
           set -euo pipefail
 
           PORT="${EC2_PORT:-22}"
-          SSH_OPTS="-i ~/.ssh/ec2_key -p $PORT -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+          SSH_OPTS="-i ~/.ssh/ec2_key -p $PORT -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o TCPKeepAlive=yes -o ConnectTimeout=30"
           REMOTE_SUDO=""
           if [ "${EC2_USE_SUDO:-false}" = "true" ]; then
             REMOTE_SUDO="sudo"
@@ -109,6 +109,7 @@ jobs:
             ./ "$EC2_USER@$EC2_HOST:$EC2_DEPLOY_PATH/"
 
       - name: Restart backend on EC2
+        timeout-minutes: 45
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
@@ -119,13 +120,13 @@ jobs:
           set -euo pipefail
 
           PORT="${EC2_PORT:-22}"
-          SSH_OPTS="-i ~/.ssh/ec2_key -p $PORT -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+          SSH_OPTS="-i ~/.ssh/ec2_key -p $PORT -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o TCPKeepAlive=yes -o ConnectTimeout=30"
           REMOTE_SUDO=""
           if [ "${EC2_USE_SUDO:-false}" = "true" ]; then
             REMOTE_SUDO="sudo"
           fi
 
-          ssh $SSH_OPTS "$EC2_USER@$EC2_HOST" "set -euo pipefail; if ! command -v docker >/dev/null 2>&1; then echo 'docker command not found on EC2'; exit 1; fi; COMPOSE_CMD='docker compose'; if ! docker compose version >/dev/null 2>&1; then if command -v docker-compose >/dev/null 2>&1; then COMPOSE_CMD='docker-compose'; else echo 'Docker Compose is not installed'; exit 1; fi; fi; cd '$EC2_DEPLOY_PATH'; if [ '$REMOTE_SUDO' = 'sudo' ]; then sudo bash -lc \"\$COMPOSE_CMD -f docker-compose.ec2.yml up -d --build\"; sudo docker image prune -f; else bash -lc \"\$COMPOSE_CMD -f docker-compose.ec2.yml up -d --build\"; docker image prune -f; fi"
+          ssh $SSH_OPTS "$EC2_USER@$EC2_HOST" "set -euo pipefail; if ! command -v docker >/dev/null 2>&1; then echo 'docker command not found on EC2'; exit 1; fi; COMPOSE_CMD='docker compose'; if ! docker compose version >/dev/null 2>&1; then if command -v docker-compose >/dev/null 2>&1; then COMPOSE_CMD='docker-compose'; else echo 'Docker Compose is not installed'; exit 1; fi; fi; export COMPOSE_BAKE=false; export BUILDKIT_PROGRESS=plain; cd '$EC2_DEPLOY_PATH'; if [ '$REMOTE_SUDO' = 'sudo' ]; then sudo bash -lc \"\$COMPOSE_CMD -f docker-compose.ec2.yml build --progress plain && \$COMPOSE_CMD -f docker-compose.ec2.yml up -d --no-build\"; sudo docker image prune -f; else bash -lc \"\$COMPOSE_CMD -f docker-compose.ec2.yml build --progress plain && \$COMPOSE_CMD -f docker-compose.ec2.yml up -d --no-build\"; docker image prune -f; fi"
 
       - name: Cleanup temporary key
         if: always()
