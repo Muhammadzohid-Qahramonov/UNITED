@@ -110,14 +110,47 @@ jobs:
           PORT="${EC2_PORT:-22}"
           REMOTE_SUDO=""
           if [ "${EC2_USE_SUDO:-false}" = "true" ]; then
-            REMOTE_SUDO="sudo "
+            REMOTE_SUDO="sudo"
           fi
 
           ssh -i ~/.ssh/ec2_key \
             -p "$PORT" \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
-            "$EC2_USER@$EC2_HOST" "set -euo pipefail; cd \"$EC2_DEPLOY_PATH\"; if [ -n \"$SERVERPOD_PASSWORDS_YAML_B64\" ]; then mkdir -p config; echo \"$SERVERPOD_PASSWORDS_YAML_B64\" | base64 -d > config/passwords.yaml; fi; ${REMOTE_SUDO}docker compose up -d --build; ${REMOTE_SUDO}docker image prune -f"
+            "$EC2_USER@$EC2_HOST" \
+            "EC2_DEPLOY_PATH='$EC2_DEPLOY_PATH' SERVERPOD_PASSWORDS_YAML_B64='$SERVERPOD_PASSWORDS_YAML_B64' REMOTE_SUDO='$REMOTE_SUDO' bash -se" <<'REMOTE'
+          set -euo pipefail
+
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "docker command not found on EC2. Install Docker first."
+            exit 1
+          fi
+
+          COMPOSE_CMD="docker compose"
+          if ! docker compose version >/dev/null 2>&1; then
+            if command -v docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD="docker-compose"
+            else
+              echo "Docker Compose is not installed. Install docker-compose-plugin or docker-compose."
+              exit 1
+            fi
+          fi
+
+          cd "$EC2_DEPLOY_PATH"
+
+          if [ -n "${SERVERPOD_PASSWORDS_YAML_B64:-}" ]; then
+            mkdir -p config
+            echo "$SERVERPOD_PASSWORDS_YAML_B64" | base64 -d > config/passwords.yaml
+          fi
+
+          if [ -n "${REMOTE_SUDO:-}" ]; then
+            $REMOTE_SUDO bash -lc "$COMPOSE_CMD up -d --build"
+            $REMOTE_SUDO docker image prune -f
+          else
+            bash -lc "$COMPOSE_CMD up -d --build"
+            docker image prune -f
+          fi
+REMOTE
 
       - name: Cleanup temporary key
         if: always()
