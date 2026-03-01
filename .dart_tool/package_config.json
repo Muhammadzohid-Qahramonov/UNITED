@@ -380,6 +380,12 @@
       "languageVersion": "3.8"
     },
     {
+      "name": "serverpod_openapi",
+      "rootUri": "file:///Users/muhammadzohid/.pub-cache/hosted/pub.dev/serverpod_openapi-0.0.3",
+      "packageUri": "lib/",
+      "languageVersion": "3.5"
+    },
+    {
       "name": "serverpod_serialization",
       "rootUri": "file:///Users/muhammadzohid/.pub-cache/hosted/pub.dev/serverpod_serialization-3.3.1",
       "packageUri": "lib/",

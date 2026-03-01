@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:serverpod/serverpod.dart';
 import 'package:serverpod_auth_idp_server/core.dart';
 import 'package:serverpod_auth_idp_server/providers/email.dart';
+import 'package:serverpod_openapi/serverpod_openapi.dart';
 
 import 'src/generated/endpoints.dart';
 import 'src/generated/protocol.dart';
@@ -40,6 +41,17 @@ void run(List<String> args) async {
   // These are used by the default web page.
   final root = Directory(Uri(path: 'web/static').toFilePath());
   pod.webServer.addRoute(StaticRoute.directory(root));
+
+  // Serve Swagger UI and OpenAPI spec.
+  pod.webServer.addRoute(
+    RouteOpenApi(
+      pod,
+      title: 'UNITED API',
+      version: '1.0.0',
+      description: 'OpenAPI documentation for UNITED Serverpod backend.',
+    ),
+    '/openapi',
+  );
 
   // Setup the app config route.
   // We build this configuration based on the servers api url and serve it to
